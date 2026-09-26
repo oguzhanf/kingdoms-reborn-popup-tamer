@@ -28,8 +28,8 @@ sealed class MainForm : Form
         _allowShow = !(startMinimized || _settings.StartMinimized);
         Text = "KR Popup Tamer - Kingdoms Reborn";
         Icon = AppIcon();
-        ClientSize = new Size(820, 600);
-        MinimumSize = new Size(640, 480);
+        ClientSize = new Size(Scale(900), Scale(660));
+        MinimumSize = new Size(Scale(700), Scale(520));
         StartPosition = FormStartPosition.CenterScreen;
 
         var launch = new Button { Text = "Launch Kingdoms Reborn", AutoSize = true, Anchor = AnchorStyles.Right | AnchorStyles.Top };
@@ -42,11 +42,11 @@ sealed class MainForm : Form
         header.Controls.Add(labels, 0, 0);
         header.Controls.Add(launch, 1, 0);
 
-        _options.Columns.Add("Suppress / enable", 330);
-        _options.Columns.Add("Type", 80);
-        _options.Columns.Add("State", 140);
-        _options.Columns.Add("This session", 90, HorizontalAlignment.Right);
-        _options.Columns.Add("Total", 80, HorizontalAlignment.Right);
+        _options.Columns.Add("Suppress / enable", Scale(400));
+        _options.Columns.Add("Type", Scale(80));
+        _options.Columns.Add("State", Scale(120));
+        _options.Columns.Add("This session", Scale(95), HorizontalAlignment.Right);
+        _options.Columns.Add("Total", Scale(80), HorizontalAlignment.Right);
         foreach (var option in Catalog.Options)
         {
             var item = new ListViewItem(option.Name) { Tag = option, Checked = _settings.IsEnabled(option) };
@@ -58,6 +58,7 @@ sealed class MainForm : Form
         _options.ItemChecked += (_, e) => { var item = e.Item; BeginInvoke(() => OnOptionToggled(item)); };
         _options.SelectedIndexChanged += (_, _) =>
             _description.Text = _options.SelectedItems.Count > 0 ? ((GameOption)_options.SelectedItems[0].Tag!).Description : "";
+        _description.Text = "Select an option to see what it does.";
 
         var startWithWindows = new CheckBox { Text = "Start with Windows", AutoSize = true, Checked = Settings.StartWithWindows };
         startWithWindows.CheckedChanged += (_, _) =>
@@ -73,10 +74,10 @@ sealed class MainForm : Form
 
         var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, Padding = new Padding(8) };
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 45));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 64));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, (Font.Height + Scale(9)) * (Catalog.Options.Length + 2))); // all options visible
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, Font.Height * 3 + Scale(8)));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 55));
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.Controls.Add(header);
         layout.Controls.Add(_options);
@@ -341,6 +342,9 @@ sealed class MainForm : Form
         _tray.Visible = false;
         base.OnFormClosing(e);
     }
+
+    // Pixel sizes are given for 96 DPI; fonts already follow the display scale, so scale sizes the same way.
+    int Scale(int pixels) => (int)Math.Round(pixels * DeviceDpi / 96.0);
 
     static Icon AppIcon()
     {
