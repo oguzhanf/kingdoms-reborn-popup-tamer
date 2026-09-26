@@ -1,0 +1,9 @@
+bin/
+obj/
+dist/
+.vs/
+__pycache__/
+*.pyc
+tools/agents/
+KRTrainer/
+tools/*.txt
