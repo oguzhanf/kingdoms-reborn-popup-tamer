@@ -81,6 +81,25 @@ exactly like one nobody answered.
 - `Farm::_fertility` is cached at farm construction (and when an Irrigation Reservoir finishes), and it is saved.
   Existing farms therefore keep their old value until rebuilt.
 
+## Auto-Trade 8 times a year
+
+The Trading Company buildings you see trading "once at the end of the year" are not running their own trade
+cycle. Built companies add 240/480/720 to their town's Auto-Trade capacity (`TownManager::GetMaxAutoTradeAmount`).
+The town's Auto-Trade orders execute in one block of `TownManager::TickRound`, which is gated by
+`Ticks % 72000 == 0` (`0x271f82a..0x271f85b`).
+
+- `TickRound` itself runs only on round ticks (`Ticks % 9000 == 0`), from `GameSimulationCore::TickSimulation`
+  through `ExecuteOnSettledPlayersAndAI`.
+- The per-round amounts are recalculated just before it (`CalculateAutoTradeAmountNextRound_Helper`,
+  `RefreshAutoTradeFulfillment`).
+
+Replacing the gate's `jne` (`0x271f85b`) with a 6-byte NOP therefore runs the block every round: 8 trades a year,
+using the game's own amount rules.
+
+- The block does not read the gate's registers or flags; its live-ins are `rsp, rbp, rsi, r12, r13, r14`.
+- Exactly 12 trades a year would need injected code that re-enters `TickRound` at extra ticks. That was designed
+  and reviewed, but not shipped, in favour of the simpler, fail-safe change.
+
 ## Counting stubs
 
 To show real statistics, a patched site jumps into a small stub in a page that the app allocates next to the

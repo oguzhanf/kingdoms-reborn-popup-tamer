@@ -87,6 +87,17 @@ static class Catalog
         ],
         // A thread between the two constants would compute one tile with a mixed formula.
         GuardRanges: [(0x267bc2d, 0x267bc40)]),
+        new("auto-trade-8x", "Auto-Trade 8 times a year (every round)", OptionKind.Gameplay, DefaultOn: false,
+            "Town Auto-Trade (the orders set with the Trading Company's Auto-Trade button) runs every round, 8 times a " +
+            "game year, instead of once at the end of the year. Each trade can move your full trade capacity, so up to " +
+            "8x the yearly volume; exports never exceed your stock, and frequent selling lowers world prices. " +
+            "'Trade Quantity per Year' and 'Net Profit per Year' in the game now mean per trade. Applies to AI towns too.",
+        [
+            // TownManager::TickRound: the auto-trade block is gated by Ticks % 72000 == 0 (`jne` past it). TickRound only
+            // runs at Ticks % 9000 == 0, so removing the gate trades every round.
+            new BytesPatch(new CodeSite(0x271f85b, "0F 85 A7 15 00 00", "CA 40 19 01 00 44 3B C1", "40 88 74 24 48 48 8D 45"),
+                "66 0F 1F 44 00 00"),
+        ]),
     ];
 }
 

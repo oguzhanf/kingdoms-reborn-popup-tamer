@@ -1,7 +1,7 @@
 # KR Popup Tamer for Kingdoms Reborn
 
 A small Windows tray app that stops Kingdoms Reborn's recurring popups — most of all the endless
-**"Yearly Action – Choose an Action"** card window — and optionally **doubles irrigation**. It patches the
+**"Yearly Action – Choose an Action"** card window. It can also **double irrigation** and make **Auto-Trade run 8 times a year**. It patches the
 running game in memory. No game files are modified, and nothing remains after the game exits.
 
 - Pick which popups to suppress, each with its own checkbox.
@@ -22,6 +22,7 @@ running game in memory. No game files are modified, and nothing remains after th
 | **Immigrants asking to join (yearly)** | off | "3 Immigrants wishes to join your City." Suppressing it has the same result as letting it expire unanswered: no immigrants and no "gift from the immigrants" prize. |
 | **Irrigation pump capacity ×2** | off | Each Irrigation Pump fills twice as many canal tiles. The pump's "Water usage" line shows the doubled capacity. |
 | **Irrigation reach ×2** | off | Canals give full (95%) fertility out to radius 10 instead of 5, fading to zero at 20 instead of 10. |
+| **Auto-Trade 8 times a year** | off | Town Auto-Trade (the orders you set with the Trading Company's *Auto-Trade* button) runs every round instead of once at the end of the year. Each trade can move your full trade capacity, so up to 8× the yearly volume. Exports never exceed your stock, and frequent selling lowers world prices. The game's "per Year" trade texts then mean "per trade". |
 
 Why not simply hide the Yearly Action window? The game keeps one active card choice plus a queue behind it. An
 unanswered choice blocks every later one, including prizes and era bonuses, and the game queues two new Yearly
