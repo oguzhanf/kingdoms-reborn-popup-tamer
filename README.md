@@ -77,7 +77,8 @@ From version 1.2.0 the app checks GitHub for a new release when it starts and on
 it, confirm, and the app downloads the release, checks it against the SHA-256 that GitHub publishes, replaces its own
 files and restarts. Your settings and statistics are kept. **Check for updates** (window or tray menu) checks right away.
 
-Version 1.1.0 and older have no updater: download 1.2.0 once by hand and unzip it over the old files.
+Version 1.1.0 and older have no updater: exit the tray app (right-click the tray icon → **Exit**), then download
+1.2.0 once by hand and unzip it over the old files.
 
 ## How it works
 
