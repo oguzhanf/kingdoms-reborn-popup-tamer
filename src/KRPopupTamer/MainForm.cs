@@ -15,32 +15,38 @@ sealed class MainForm : Form
     readonly ListView _options = new() { View = View.Details, CheckBoxes = true, FullRowSelect = true, Dock = DockStyle.Fill, HideSelection = false };
     readonly Label _description = new() { Dock = DockStyle.Fill, AutoEllipsis = true };
     readonly ListBox _log = new() { Dock = DockStyle.Fill, IntegralHeight = false, HorizontalScrollbar = true };
+    readonly Button _update = new() { AutoSize = true, Visible = false, Anchor = AnchorStyles.Right | AnchorStyles.Top };
     readonly System.Windows.Forms.Timer _timer = new() { Interval = 1000 };
     readonly Dictionary<string, long> _session = [], _lastCount = [];
     readonly Dictionary<string, string> _errors = [];
     GameProcess? _game;
     Patcher? _patcher;
-    bool _supported, _multiplayer, _allowShow, _exiting, _balloonShown;
+    Updater.Release? _release;
+    DateTime _nextUpdateCheck;
+    bool _supported, _multiplayer, _allowShow, _exiting, _balloonShown, _checkingUpdate;
     string? _lastError;
 
     public MainForm(bool startMinimized)
     {
         _allowShow = !(startMinimized || _settings.StartMinimized);
-        Text = "KR Popup Tamer - Kingdoms Reborn";
+        Text = $"KR Popup Tamer {Updater.Current} - Kingdoms Reborn";
         Icon = AppIcon();
-        ClientSize = new Size(Scale(900), Scale(660));
-        MinimumSize = new Size(Scale(700), Scale(520));
+        ClientSize = new Size(Scale(900), Scale(720));
+        MinimumSize = new Size(Scale(700), Scale(580));
         StartPosition = FormStartPosition.CenterScreen;
 
         var launch = new Button { Text = "Launch Kingdoms Reborn", AutoSize = true, Anchor = AnchorStyles.Right | AnchorStyles.Top };
         launch.Click += (_, _) => LaunchGame();
-        var header = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, AutoSize = true };
+        _update.Click += (_, _) => InstallUpdate();
+        var header = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, AutoSize = true };
         header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         var labels = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, WrapContents = false };
         labels.Controls.AddRange([_status, _info]);
         header.Controls.Add(labels, 0, 0);
-        header.Controls.Add(launch, 1, 0);
+        header.Controls.Add(_update, 1, 0);
+        header.Controls.Add(launch, 2, 0);
 
         _options.Columns.Add("Suppress / enable", Scale(400));
         _options.Columns.Add("Type", Scale(80));
@@ -60,6 +66,15 @@ sealed class MainForm : Form
             _description.Text = _options.SelectedItems.Count > 0 ? ((GameOption)_options.SelectedItems[0].Tag!).Description : "";
         _description.Text = "Select an option to see what it does.";
 
+        var factors = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = false };
+        foreach (var option in Catalog.Options.Where(o => o.FactorLabel != null))
+        {
+            var box = new NumericUpDown { Minimum = 1.0m, Maximum = 10.0m, Increment = 0.1m, DecimalPlaces = 1, Width = Scale(60), Value = _settings.FactorOf(option) };
+            box.ValueChanged += (_, _) => OnFactorChanged(option, box.Value);
+            factors.Controls.Add(new Label { Text = option.FactorLabel, AutoSize = true, Padding = new Padding(0, Scale(5), 0, 0) });
+            factors.Controls.Add(box);
+        }
+
         var startWithWindows = new CheckBox { Text = "Start with Windows", AutoSize = true, Checked = Settings.StartWithWindows };
         startWithWindows.CheckedChanged += (_, _) =>
         {
@@ -69,18 +84,22 @@ sealed class MainForm : Form
         startMinimizedBox.CheckedChanged += (_, _) => { _settings.StartMinimized = startMinimizedBox.Checked; SaveSettings(); };
         var exit = new Button { Text = "Exit", AutoSize = true };
         exit.Click += (_, _) => ExitApp();
+        var checkUpdates = new Button { Text = "Check for updates", AutoSize = true };
+        checkUpdates.Click += async (_, _) => await CheckForUpdates(manual: true);
         var footer = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true };
-        footer.Controls.AddRange([startWithWindows, startMinimizedBox, exit]);
+        footer.Controls.AddRange([startWithWindows, startMinimizedBox, checkUpdates, exit]);
 
         var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, Padding = new Padding(8) };
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, (Font.Height + Scale(9)) * (Catalog.Options.Length + 2))); // all options visible
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, Font.Height * 3 + Scale(8)));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.Controls.Add(header);
         layout.Controls.Add(_options);
+        layout.Controls.Add(factors);
         layout.Controls.Add(_description);
         layout.Controls.Add(new Label { Text = "Activity (changes stay in the game until it closes; uncheck an option to undo it)", AutoSize = true });
         layout.Controls.Add(_log);
@@ -90,6 +109,7 @@ sealed class MainForm : Form
         var menu = new ContextMenuStrip();
         menu.Items.Add("Open", null, (_, _) => ShowWindow());
         menu.Items.Add("Launch Kingdoms Reborn", null, (_, _) => LaunchGame());
+        menu.Items.Add("Check for updates", null, async (_, _) => await CheckForUpdates(manual: true));
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Exit", null, (_, _) => ExitApp());
         _tray.Icon = Icon;
@@ -106,6 +126,11 @@ sealed class MainForm : Form
 
     void Tick()
     {
+        if (DateTime.Now >= _nextUpdateCheck) // at start, then daily
+        {
+            _nextUpdateCheck = DateTime.Now.AddDays(1);
+            _ = CheckForUpdates(manual: false);
+        }
         try
         {
             if (_game == null)
@@ -200,6 +225,7 @@ sealed class MainForm : Form
             var want = _settings.IsEnabled(option) && !_multiplayer;
             try
             {
+                if (option.FactorLabel != null) _patcher!.SetFactor(option, (int)(_settings.FactorOf(option) * 100));
                 var before = _patcher!.StateOf(option);
                 if (!_patcher.Set(option, want))
                 {
@@ -207,8 +233,8 @@ sealed class MainForm : Form
                     continue;
                 }
                 var after = _patcher.StateOf(option);
-                if (after != before) Log($"{option.Name}: {(want ? "ON" : "OFF (game restored)")}");
-                item.SubItems[2].Text = after switch { PatchState.On => "Active", PatchState.Off => "Off", _ => after.ToString() };
+                if (after != before) Log($"{option.Name}: {(want ? "ON" + FactorText(option) : "OFF (game restored)")}");
+                item.SubItems[2].Text = after switch { PatchState.On => "Active" + FactorText(option), PatchState.Off => "Off", _ => after.ToString() };
             }
             catch (Exception e) when (e is Win32Exception or InvalidOperationException)
             {
@@ -263,6 +289,76 @@ sealed class MainForm : Form
         {
             Log($"Error: {e.Message}");
             if (_game?.HasExited ?? false) Detach();
+        }
+    }
+
+    string FactorText(GameOption option) => option.FactorLabel != null ? $" x{_settings.FactorOf(option):0.0}" : "";
+
+    void OnFactorChanged(GameOption option, decimal factor)
+    {
+        _settings.Factors[option.Id] = factor;
+        SaveSettings();
+        if (_patcher == null) return;
+        try
+        {
+            Reconcile(); // writes the new factor into the game
+        }
+        catch (Exception e) when (e is Win32Exception or InvalidOperationException)
+        {
+            Log($"Error: {e.Message}");
+            if (_game?.HasExited ?? false) Detach();
+        }
+    }
+
+    async Task CheckForUpdates(bool manual)
+    {
+        if (_checkingUpdate) return;
+        _checkingUpdate = true;
+        try
+        {
+            var release = await Updater.CheckAsync();
+            if (release == null)
+            {
+                if (manual) Log($"KR Popup Tamer {Updater.Current} is the latest version.");
+                return;
+            }
+            if (!manual && release.Version == _release?.Version) return;
+            _release = release;
+            _update.Text = $"Update to {release.Version}";
+            _update.Visible = true;
+            Log($"KR Popup Tamer {release.Version} is available (this is {Updater.Current}). Click \"Update to {release.Version}\" to install it. What's new: {release.Page}");
+            if (!Visible) _tray.ShowBalloonTip(5000, "KR Popup Tamer", $"Version {release.Version} is available. Open the window to update.", ToolTipIcon.Info);
+        }
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException or InvalidOperationException or KeyNotFoundException)
+        {
+            if (manual) Log($"Could not check for updates: {e.Message}");
+        }
+        finally
+        {
+            _checkingUpdate = false;
+        }
+    }
+
+    async void InstallUpdate()
+    {
+        if (_release is not { } release) return;
+        var answer = MessageBox.Show(this, $"Install KR Popup Tamer {release.Version} and restart the app?\n\n" +
+            "Your options and statistics are kept. Options stay active in the running game during the restart.",
+            "Update KR Popup Tamer", MessageBoxButtons.OKCancel, MessageBoxIcon.Question);
+        if (answer != DialogResult.OK) return;
+        _update.Enabled = false;
+        Log($"Downloading KR Popup Tamer {release.Version}...");
+        try
+        {
+            await Updater.InstallAsync(release);
+            Log("Installed. Restarting...");
+            ExitApp();
+        }
+        catch (Exception e) when (e is HttpRequestException or TaskCanceledException or IOException or UnauthorizedAccessException
+                                   or InvalidDataException or Win32Exception)
+        {
+            Log($"Update failed: {e.Message} You can download it from {release.Page}");
+            _update.Enabled = true;
         }
     }
 

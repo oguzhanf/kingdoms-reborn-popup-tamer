@@ -100,6 +100,63 @@ using the game's own amount rules.
 - Exactly 12 trades a year would need injected code that re-enters `TickRound` at extra ticks. That was designed
   and reviewed, but not shipped, in favour of the simpler, fail-safe change.
 
+## Building output and work speed multipliers
+
+**Output.** A building's produced amount scales with `Building::efficiency` (base efficiency plus bonuses, in percent).
+Batch buildings compute `outputPerBatch = baseOutputPerBatch * efficiency / 100` (`Building::outputPerBatch` and
+`ConsumerIndustrialBuilding::outputPerBatch`, vtable slot 0x148, used by `CheckWorkDone` and the UI). The other
+producers read efficiency in their own code. The option redirects exactly these six direct calls of
+`Building::efficiency` (0x2597b00) to a wrapper:
+
+| Call site | Producer |
+|---|---|
+| `0x259851b` `Building::outputPerBatch` | batch buildings: workshops, mines, fishers, mushroom farms, ... |
+| `0x267890d` `ConsumerIndustrialBuilding::outputPerBatch` | Mint, Card Maker, Inventor's Workshop, Immigration Office, Barrack |
+| `0x2644056` `Farm::DoFarmWork` | farm harvest |
+| `0x272b1f8` `UnitStateAI::GatherFruit` | fruit gatherers |
+| `0x272df1a` `UnitStateAI::HarvestTileObj` | foresters (bonus = efficiency above 100%) |
+| `0x2726371` `UnitStateAI::AttackIncoming` | hunters and ranch slaughter drops |
+
+Its other callers (trade timing, irrigation, combat, caravan money, the Efficiency line in the UI) keep the plain
+value. Batch work time (`workManSecPerBatch100`) and inputs (`inputPerBatch`) do not read `outputPerBatch` or these
+calls, so xN output really means xN goods from the same inputs.
+
+```
+push rbx; sub rsp,0x20; mov rbx,rcx
+call Building::efficiency
+mov ecx,[rbx+0x94]          ; Building::_playerId
+cmp ecx,[page+0x08]         ; local player id
+jne done
+imul eax,[page+0x40]        ; output factor, percent
+cdq; mov ecx,100; idiv ecx
+done: add rsp,0x20; pop rbx; ret
+```
+
+**Work speed.** Workers add work through `Building::DoWork(building, unitId, work, checkDone)`, which adds `work`
+to `_workDone100`; `CheckWorkDone` finishes a batch when it reaches `workManSecPerBatch100` and resets it to 0. The
+option redirects its three callers (`0x2728cfe` tail jump in `UnitStateAI::DoWork`, `0x272ac8f` `FisherDoWork`,
+`0x273238b` `Produce`) to a wrapper that, for the local player's constructed buildings (`_isConstructed` +0x121),
+scales `r8d` by the speed factor (`[page+0x44]`), keeps `rcx`, `rdx` and `r9`, and jumps to `DoWork`. Construction
+uses the same function and is left alone. Work beyond the batch is lost at the reset, which caps very high factors.
+
+- A redirect changes only the rel32 of a 5-byte `call`/`jmp`; no branch in the exe targets the inside of any of them.
+  Unticking writes the original rel32 back. A thread inside a wrapper simply returns to the original call site.
+- The factors are data in the page; the app writes them when you change a box, without touching code. New pages
+  get the player id and factors before any site points at them (a zero factor would stop production).
+- The output wrapper's stack frame has no unwind data. That only matters to a stack walk while the game is already
+  crashing inside `Building::efficiency`.
+- Measured live (`tools/live_production.py`): with x2 output, your Iron Smelter made 46 per batch instead of 23 while
+  AI Potters stayed at 8; with x2 speed, each work action on your buildings added 400 instead of 200 (AI: 200).
+
+## Updates
+
+`Updater.cs` reads `https://api.github.com/repos/oguzhanf/kingdoms-reborn-popup-tamer/releases/latest`. If its tag is
+newer than the app, the window offers the update. Installing downloads the release's `KRPopupTamer.zip`, checks its
+SHA-256 against the asset `digest` GitHub publishes, extracts the root files as `*.new`, renames the running exe to
+`*.old` (Windows allows renaming a running exe), moves the new files in, and starts the new exe with `--after-update`.
+That instance waits up to 30 s for the old one to exit (single-instance mutex) and deletes the `*.old` files.
+The release zip must keep the name `KRPopupTamer.zip` with `KRPopupTamer.exe` at its root.
+
 ## Counting stubs
 
 To show real statistics, a patched site jumps into a small stub in a page that the app allocates next to the

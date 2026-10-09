@@ -8,6 +8,7 @@ namespace KRPopupTamer;
 sealed class Settings
 {
     public Dictionary<string, bool> Enabled { get; set; } = [];
+    public Dictionary<string, decimal> Factors { get; set; } = [];
     public Dictionary<string, long> TotalSuppressed { get; set; } = [];
     public bool StartMinimized { get; set; }
 
@@ -15,6 +16,10 @@ sealed class Settings
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "KRPopupTamer", "settings.json");
 
     public bool IsEnabled(GameOption option) => Enabled.TryGetValue(option.Id, out var on) ? on : option.DefaultOn;
+
+    // x1.0 to x10.0 in steps of 0.1; default x2.0.
+    public decimal FactorOf(GameOption option) =>
+        Math.Round(Math.Clamp(Factors.TryGetValue(option.Id, out var factor) ? factor : 2.0m, 1.0m, 10.0m), 1);
 
     public static Settings Load()
     {
@@ -29,6 +34,7 @@ sealed class Settings
         }
         settings ??= new();
         settings.Enabled ??= [];
+        settings.Factors ??= [];
         settings.TotalSuppressed ??= [];
         return settings;
     }

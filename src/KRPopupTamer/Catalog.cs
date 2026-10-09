@@ -98,10 +98,44 @@ static class Catalog
             new BytesPatch(new CodeSite(0x271f85b, "0F 85 A7 15 00 00", "CA 40 19 01 00 44 3B C1", "40 88 74 24 48 48 8D 45"),
                 "66 0F 1F 44 00 00"),
         ]),
+        new("output-multiplier", "Building output multiplier (your towns)", OptionKind.Gameplay, DefaultOn: false,
+            "Your buildings make more goods each time they produce, by the factor set below the list (x1.0 to x10.0): " +
+            "workshops, mines, fishers and other batch buildings, farms, fruit gatherers, foresters, hunters and ranch " +
+            "slaughter; also what the Mint, Card Maker, Inventor's Workshop, Immigration Office and Barrack make per batch. " +
+            "Workshops use the same inputs per batch, so x2 means twice the goods from the same materials. " +
+            "Only your own towns and colonies; AI towns are not changed. A building's Efficiency line stays the same, its " +
+            "output per batch shows the boost. Not covered: the cow ranch's per-round product, and citizens harvesting " +
+            "trees or stone without a workplace.",
+        [
+            // Building::efficiency calls that compute produced amounts -> output wrapper (efficiency x factor for the
+            // local player's buildings). Other callers (trade, irrigation, combat, caravans, UI) keep the plain value.
+            new RedirectPatch(new CodeSite(0x259851b, "E8 E0 F5 FF FF", "01 00 00 48 8B CB 8B F8", "48 8B 5C 24 30 0F AF F8"), Wrapper.Output), // Building::outputPerBatch
+            new RedirectPatch(new CodeSite(0x267890d, "E8 EE F1 F1 FF", "57 48 83 EC 20 48 8B D9", "48 8B CB 8B F8 E8 E4 F1"), Wrapper.Output), // ConsumerIndustrialBuilding::outputPerBatch (Mint, CardMaker, ...)
+            new RedirectPatch(new CodeSite(0x2644056, "E8 A5 3A F5 FF", "03 D8 41 2B D8 83 C3 64", "8B 7D 6B 44 8B C0 B9 0A"), Wrapper.Output), // Farm::DoFarmWork
+            new RedirectPatch(new CodeSite(0x272b1f8, "E8 03 C9 E6 FF", "EB 03 48 8B C6 48 8B C8", "0F AF 44 24 34 8B C8 E8"), Wrapper.Output), // UnitStateAI::GatherFruit
+            new RedirectPatch(new CodeSite(0x272df1a, "E8 E1 9B E6 FF", "00 EB 02 33 C0 48 8B C8", "83 C0 9C 33 DB 85 C0 0F"), Wrapper.Output), // UnitStateAI::HarvestTileObj (Forester)
+            new RedirectPatch(new CodeSite(0x2726371, "E8 8A 17 E7 FF", "48 85 C0 74 0C 48 8B C8", "8B C8 EB 02 8B CE 43 0F"), Wrapper.Output), // UnitStateAI::AttackIncoming (hunter drops)
+        ],
+        FactorLabel: "Output x"),
+        new("speed-multiplier", "Building work speed multiplier (your towns)", OptionKind.Gameplay, DefaultOn: false,
+            "Work on your finished buildings counts more, by the factor set below the list (x1.0 to x10.0), so batches " +
+            "finish that much sooner: workshops, mines, fishers, card makers, immigration offices. Workshops also use " +
+            "their inputs that much faster. Farms, gatherers and construction are not affected. Work beyond one batch per " +
+            "work action is lost, so very high factors stop helping. Only your own towns and colonies; AI towns are not changed.",
+        [
+            // Building::DoWork calls -> speed wrapper (work amount x factor for the local player's constructed buildings).
+            new RedirectPatch(new CodeSite(0x2728cfe, "E9 5D 69 F0 FF", "48 81 C4 80 00 00 00 5B", "CC CC CC CC CC CC CC CC"), Wrapper.Speed), // UnitStateAI::DoWork (tail jump)
+            new RedirectPatch(new CodeSite(0x272ac8f, "E8 CC 49 F0 FF", "B8 44 0F AF C7 49 8B CE", "66 41 83 BE 98 00 00 00"), Wrapper.Speed), // UnitStateAI::FisherDoWork
+            new RedirectPatch(new CodeSite(0x273238b, "E8 D0 D2 EF FF", "73 D8 08 66 41 0F 7E C0", "80 BD 18 01 00 00 00 0F"), Wrapper.Speed), // UnitStateAI::Produce
+        ],
+        FactorLabel: "Work speed x"),
     ];
 }
 
 enum OptionKind { Popup, Gameplay }
+
+// Code in the app's page that a RedirectPatch sends a call (or tail jump) to. Both read their factor from the page.
+enum Wrapper { Output, Speed }
 
 enum Reg { Rax = 0, Rcx = 1, Rdx = 2, Rbx = 3, Rbp = 5, Rsi = 6, Rdi = 7, R8 = 8, R9, R10, R11, R13 = 13, R14, R15 }
 
@@ -129,9 +163,16 @@ sealed record BytesPatch(CodeSite Site, string New) : Patch(Site)
     public byte[] NewBytes { get; } = CodeSite.Hex(New);
 }
 
+// Changes the rel32 of a call or jmp at Site (E8/E9 + 4 bytes) to go through Wrapper, which ends in the original target.
+sealed record RedirectPatch(CodeSite Site, Wrapper Wrapper) : Patch(Site)
+{
+    public uint TargetRva { get; } = (uint)(Site.Rva + 5 + BitConverter.ToInt32(Site.OriginalBytes, 1));
+}
+
 // Guards: extra code ranges (RVA, inclusive) in which no game thread may be stopped while the option is switched.
+// FactorLabel: the option has a factor (x1.0 to x10.0) set in the window, and this labels its box.
 sealed record GameOption(string Id, string Name, OptionKind Kind, bool DefaultOn, string Description, Patch[] Patches,
-    (uint Start, uint End)[]? GuardRanges = null)
+    (uint Start, uint End)[]? GuardRanges = null, string? FactorLabel = null)
 {
     public (uint Start, uint End)[] Guards => GuardRanges ?? [];
 }

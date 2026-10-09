@@ -29,5 +29,13 @@ for rva_s, orig, new in re.findall(r'new BytesPatch\(new CodeSite\((0x[0-9a-fA-F
     same_length = len(hexbytes(orig)) == len(hexbytes(new))
     ok &= same_length
     print("%s 0x%08x  BytesPatch length %s" % ("OK  " if same_length else "FAIL", int(rva_s, 16), "matches" if same_length else "differs"))
+# Every RedirectPatch of one wrapper must be a call/jmp rel32 to the function that wrapper ends in.
+WRAPPER_TARGETS = {"Output": 0x2597b00, "Speed": 0x262f660}  # Building::efficiency, Building::DoWork
+for rva_s, orig, wrapper in re.findall(r'new RedirectPatch\(new CodeSite\((0x[0-9a-fA-F]+), "([0-9A-Fa-f ]+)", "[0-9A-Fa-f ]+", "[0-9A-Fa-f ]+"\), Wrapper\.(\w+)\)', src):
+    rva, o = int(rva_s, 16), hexbytes(orig)
+    target = rva + 5 + int.from_bytes(o[1:5], "little", signed=True)
+    good = len(o) == 5 and o[0] in (0xE8, 0xE9) and target == WRAPPER_TARGETS.get(wrapper)
+    ok &= good
+    print("%s 0x%08x  RedirectPatch %s -> 0x%x" % ("OK  " if good else "FAIL", rva, wrapper, target))
 print("%d sites checked: %s" % (len(sites), "ALL OK" if ok else "PROBLEMS FOUND"))
 sys.exit(0 if ok else 1)
